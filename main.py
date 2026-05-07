@@ -78,14 +78,14 @@ async def on_ready():
 @app_commands.describe(
     아이템명="판매한 아이템 이름",
     판매금="거래소 수수료 제외 후 실수령 메소",
-    파티원수="분배할 파티 인원 (1~6)",
+    파티원수="분배할 파티 인원 (1~15)",
     카르마가위="카르마의 가위 구매 비용 (없으면 생략)",
 )
 async def distribute(
     interaction: discord.Interaction,
     아이템명: str,
     판매금: app_commands.Range[int, 1, 100_000_000_000],
-    파티원수: app_commands.Range[int, 1, 6],
+    파티원수: app_commands.Range[int, 1, 15],
     카르마가위: app_commands.Range[int, 0, 1_000_000_000] = 0,
 ):
     # 1) 카르마 가위 차감

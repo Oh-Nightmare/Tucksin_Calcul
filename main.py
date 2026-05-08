@@ -141,15 +141,29 @@ async def distribute(
     per_share = after_karma // 파티원수
     remainder = after_karma - per_share * 파티원수
 
-    # 3) 누진 택배 수수료
-    parcel_fee, breakdown = calc_parcel_fee(per_share)
+    # 3) 분배자(=명령 실행자)는 본인 몫을 그대로 가져가므로 택배 송금 X
+    #    실제로 택배가 발생하는 횟수 = 파티원수 - 1
+    n_receivers = 파티원수 - 1
 
-    # 4) 최종 수령액
-    final_amount = per_share - parcel_fee
+    # 4) 누진 택배 수수료 (1건 기준)
+    if n_receivers >= 1:
+        parcel_fee, breakdown = calc_parcel_fee(per_share)
+    else:
+        parcel_fee, breakdown = 0, []
 
-    # 5) 분할 송금 절약 탐색
-    best_n, best_fee, single_fee = find_optimal_split(per_share)
-    save_amount = single_fee - best_fee
+    # 5) 1인당 수령액
+    distributor_amount = per_share                         # 분배자: 수수료 X
+    receiver_amount = per_share - parcel_fee               # 다른 파티원: 수수료 차감 후
+    total_parcel_fee = parcel_fee * n_receivers            # 분배자가 부담하는 총 수수료
+
+    # 6) 분할 송금 절약 탐색 (n_receivers ≥ 1 일 때만 의미 있음)
+    save_per_receiver = 0
+    best_n = 1
+    if n_receivers >= 1:
+        best_n, best_fee, single_fee = find_optimal_split(per_share)
+        save_per_receiver = single_fee - best_fee
+
+    distributor_name = interaction.user.display_name
 
     # ── 임베드 본문 ──────────────────────────────────────────────────
     lines = [
@@ -164,52 +178,69 @@ async def distribute(
         "━━━━━━━━━━━━━━━━━━━",
         f"정산 금액 : `{after_karma:,}메소`",
         f"÷ {파티원수}명 → 1인당 몫 : `{per_share:,}메소`",
-        "",
-        f"**🚚 택배 수수료 산출** (1인당 몫 `{per_share:,}메소` 기준 · 누진)",
     ])
-    if breakdown:
-        for label, bracket_amount, rate_pct, bracket_fee in breakdown:
-            lines.append(
-                f"• `{label}` : {bracket_amount:,} × {rate_pct:g}% = `{bracket_fee:,}메소`"
-            )
+
+    if n_receivers == 0:
+        # 분배자 혼자 — 택배 불필요
+        lines.extend([
+            "",
+            "👤 **혼자 받음** — 택배 송금 불필요, 수수료 없음",
+            "",
+            "💰 **최종 수령액**",
+            f"## `{distributor_amount:,}` 메소",
+        ])
     else:
-        lines.append("• `10만 메소 미만` 구간 → 누진 수수료 0")
-    lines.append(f"• `기본료` : `{PARCEL_BASE_FEE:,}메소`")
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━",
-        "",
-        "**📤 1인당 송금 명세**",
-        f"• 발송 원금 (1인당 몫) : `{per_share:,}메소`",
-        f"• 수수료 적용 금액 : `-{parcel_fee:,}메소`",
-        f"• 정상 발송 금액 : `{final_amount:,}메소`",
-        "",
-        "💰 **1인당 최종 수령액**",
-        f"## `{final_amount:,}` 메소",
-    ])
+        # 1) 수수료 산출
+        lines.extend([
+            "",
+            f"**🚚 택배 수수료 산출** (1인당 몫 `{per_share:,}메소` 기준 · 누진)",
+        ])
+        if breakdown:
+            for label, bracket_amount, rate_pct, bracket_fee in breakdown:
+                lines.append(
+                    f"• `{label}` : {bracket_amount:,} × {rate_pct:g}% = `{bracket_fee:,}메소`"
+                )
+        else:
+            lines.append("• `10만 메소 미만` 구간 → 누진 수수료 0")
+        lines.append(f"• `기본료` : `{PARCEL_BASE_FEE:,}메소`")
+        lines.extend([
+            "━━━━━━━━━━━━━━━━━━━",
+            "",
+            f"**📤 1건당 송금 명세** (분배자 → 다른 파티원)",
+            f"• 발송 원금 (1인당 몫) : `{per_share:,}메소`",
+            f"• 수수료 적용 금액 : `-{parcel_fee:,}메소`",
+            f"• 정상 발송 금액 : `{receiver_amount:,}메소`",
+            "",
+            "**💰 1인당 최종 수령액**",
+            f"• 분배자 (`{distributor_name}`) : `{distributor_amount:,}메소` _(택배 발송 X · 수수료 없음)_",
+            f"• 다른 파티원 ({n_receivers}명) : 각 `{receiver_amount:,}메소`",
+            "",
+            f"💸 **분배자 총 부담 택배 수수료** : `{parcel_fee:,} × {n_receivers}회` = `-{total_parcel_fee:,}메소`",
+        ])
+
+        if receiver_amount < 0:
+            lines.append("\n⚠️ 1인당 몫이 택배 수수료보다 작아 다른 파티원 수령액이 음수예요.")
 
     if remainder:
         lines.append(f"\n_분배 시 나머지 {remainder:,}메소는 버림 처리되었어요._")
 
-    if final_amount < 0:
-        lines.append(
-            f"\n⚠️ 1인당 몫이 택배 수수료보다 작아 최종 수령액이 음수입니다."
-        )
-
-    # 분할 송금 절약 팁 (절약액 > 0일 때만)
-    if best_n > 1 and save_amount > 0:
+    # 분할 송금 절약 팁
+    if n_receivers >= 1 and best_n > 1 and save_per_receiver > 0:
+        total_save = save_per_receiver * n_receivers
         lines.append("")
         lines.append(
-            f"💡 **절약 팁** : 1인당 몫을 **{best_n}회 분할 송금**하면 "
-            f"수수료 `{best_fee:,}메소` "
-            f"(단일 `{single_fee:,}` → **`{save_amount:,}메소 절약`**)"
+            f"💡 **절약 팁** : 각 파티원에게 **{best_n}회 분할 송금** 시 "
+            f"1명당 `{save_per_receiver:,}메소` 절약 "
+            f"(총 `{n_receivers}명 × {save_per_receiver:,}` = **`{total_save:,}메소 절약`**)"
         )
 
     # 분배 내역 (2명 이상)
     if 파티원수 >= 2:
         lines.append("")
         lines.append("**📦 분배 내역**")
-        for i in range(1, 파티원수 + 1):
-            lines.append(f"• 파티원 {i} : `{final_amount:,}메소`")
+        lines.append(f"• 분배자 (`{distributor_name}`) : `{distributor_amount:,}메소`")
+        for i in range(2, 파티원수 + 1):
+            lines.append(f"• 파티원 {i} : `{receiver_amount:,}메소`")
 
     embed = discord.Embed(
         title=f"🍁 [ {아이템명} ] 판매 수익금 분배",

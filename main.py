@@ -177,10 +177,14 @@ async def distribute(
     lines.append(f"• `기본료` : `{PARCEL_BASE_FEE:,}메소`")
     lines.extend([
         "━━━━━━━━━━━━━━━━━━━",
-        f"택배 수수료 합계 : `-{parcel_fee:,}메소`",
         "",
-        "💰 **최종 수령액 (택배 발송 금액)**",
-        f"## 1인당 `{final_amount:,}` 메소",
+        "**📤 1인당 송금 명세**",
+        f"• 발송 원금 (1인당 몫) : `{per_share:,}메소`",
+        f"• 수수료 적용 금액 : `-{parcel_fee:,}메소`",
+        f"• 정상 발송 금액 : `{final_amount:,}메소`",
+        "",
+        "💰 **1인당 최종 수령액**",
+        f"## `{final_amount:,}` 메소",
     ])
 
     if remainder:
